@@ -11,7 +11,7 @@ def load_data(path):
 
 def construct_target(df):
     # Still not sure if this is a good target
-    df['CVD'] = df[['HadHeartAttack', 'HadStroke', 'HadAngina']].apply(
+    df['CVD'] = df[['HadHeartAttack', 'HadAngina']].apply(
         lambda x: 1 if 'Yes' in x.values else 0, axis=1
     )
     return df
@@ -25,20 +25,30 @@ def encode_categoricals(df):
         'HadDepressiveDisorder', 'DifficultyErrands', 'DifficultyDressingBathing',
         'DifficultyConcentrating', 'AlcoholDrinkers', 'ChestScan', 'HighRiskLastYear',
         'HadSkinCancer', 'HadArthritis', 'HadKidneyDisease', 'BlindOrVisionDifficulty',
-        'PhysicalActivities', 'PneumoVaxEver', 'Sex'
+        'PhysicalActivities', 'PneumoVaxEver'
     ]
 
     for col in binary_cols:
         df[col] = df[col].map({'No': 0, 'Yes': 1})
 
+    # map Sex
+    df['Sex'] = df['Sex'].map({'Male': 1, 'Female': 0})
+
     # CovidPos special case
     df['CovidPos'] = df['CovidPos'].apply(lambda x: 1 if 'Yes' in str(x) or 'positive' in str(x) else 0)
+
+    # testing
+    # print("GeneralHealth values:", df['GeneralHealth'].unique())
+    # print("LastCheckupTime values:", df['LastCheckupTime'].unique())
+    # print("RemovedTeeth values:", df['RemovedTeeth'].unique())
+    # print("AgeCategory values:", df['AgeCategory'].unique())
+    # print("HadDiabetes values:", df['HadDiabetes'].unique())
 
     # Ordinal mappings
     health_map = {
         'Excellent': 5, 'Very good': 4, 'Good': 3, 'Fair': 2, 'Poor': 1
     }
-    df['GeneralHealth'] = df['GeneralHealth'].map(health_map)
+    df['GeneralHealth'] = df['GeneralHealth'].map(health_map).fillna(0)
 
     checkup_map = {
         'Within past year (anytime less than 12 months ago)': 4,
@@ -46,12 +56,12 @@ def encode_categoricals(df):
         'Within past 5 years (2 years but less than 5 years ago)': 2,
         '5 or more years ago': 1
     }
-    df['LastCheckupTime'] = df['LastCheckupTime'].map(checkup_map)
+    df['LastCheckupTime'] = df['LastCheckupTime'].map(checkup_map).fillna(0)
 
     teeth_map = {
         'None of them': 0, '1 to 5': 1, '6 or more, but not all': 2, 'All': 3
     }
-    df['RemovedTeeth'] = df['RemovedTeeth'].map(teeth_map)
+    df['RemovedTeeth'] = df['RemovedTeeth'].map(teeth_map).fillna(0)
 
     age_map = {
         'Age 18 to 24': 21, 'Age 25 to 29': 27, 'Age 30 to 34': 32,
@@ -60,7 +70,7 @@ def encode_categoricals(df):
         'Age 65 to 69': 67, 'Age 70 to 74': 72, 'Age 75 to 79': 77,
         'Age 80 or older': 85
     }
-    df['AgeMidpoint'] = df['AgeCategory'].map(age_map)
+    df['AgeMidpoint'] = df['AgeCategory'].map(age_map).fillna(0)
     df.drop('AgeCategory', axis=1, inplace=True)
 
     diabetes_map = {
@@ -69,7 +79,7 @@ def encode_categoricals(df):
         'Yes': 2,
         'Yes, but only during pregnancy (female)': 1
     }
-    df['HadDiabetes'] = df['HadDiabetes'].map(diabetes_map)
+    df['HadDiabetes'] = df['HadDiabetes'].map(diabetes_map).fillna(0)
 
     # Nominal variables for one-hot encoding
     nominal_cols = [
@@ -86,7 +96,6 @@ def scale_features(df):
     df[num_cols] = scaler.fit_transform(df[num_cols])
     return df
 
-
 def split_data(df):
     X = df.drop('CVD', axis=1)
     y = df['CVD']
@@ -99,8 +108,26 @@ def split_data(df):
 def preprocess_pipeline(path):
     df = load_data(path)
     df = construct_target(df)
+
+    # df.drop(columns=['HadHeartAttack', 'HadStroke', 'HadAngina'], inplace=True, errors='ignore')
+    drop_cols = ['HadHeartAttack', 'HadStroke', 'HadAngina']
+    existing_cols = [col for col in drop_cols if col in df.columns]
+    df.drop(columns=existing_cols, inplace=True)
+
     df = encode_categoricals(df)
     df = scale_features(df)
+    # df.dropna(inplace=True)
     X_train, X_test, y_train, y_test = split_data(df)
+
+    # debugging
+    # print("X_train shape:", X_train.shape)
+    # print("X_test shape:", X_test.shape)
+    # print("X_train and X_test overlap:", pd.merge(X_train, X_test).shape)
+    # print("y_train distribution:\n", y_train.value_counts())
+    # print("y_test distribution:\n", y_test.value_counts())
+    # if df.isnull().any().any():
+    #     print("NaNs found in preprocessed data!")
+    #     print(df.isnull().sum()[df.isnull().sum() > 0])
+
     return X_train, X_test, y_train, y_test
 
