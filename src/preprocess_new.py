@@ -24,6 +24,20 @@ def drop_leaky_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
+    # Grouping states
+    top_n = 10
+    top_states = df['State'].value_counts().nlargest(top_n).index
+    df['State'] = df['State'].where(df['State'].isin(top_states), 'Other')
+
+    # Group race/ethnicity 
+    top_races = df['RaceEthnicityCategory'] \
+                    .value_counts() \
+                    .nlargest(5) \
+                    .index
+    df['RaceEthnicityCategory'] = df['RaceEthnicityCategory'] \
+        .where(df['RaceEthnicityCategory'].isin(top_races), 'Other')
+    
+    
     # Map Yes/No flags including various health indicators
     yes_no = [
         'HadAsthma','HadCOPD','HadDepressiveDisorder','HadKidneyDisease',
@@ -84,6 +98,34 @@ def encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
     if 'HadDiabetes' in df.columns:
         df['HadDiabetes'] = df['HadDiabetes'].map(diabetes_map).fillna(0)
 
+    # SmokerStatus multi-level
+    smoker_map = {
+        'Never smoked': 0, 'Former smoker': 1, 'Current smoker - now smokes everyday': 3, 
+        'Current smoker - now smokes some days': 2
+    }
+    if 'SmokerStatus' in df.columns:
+        df['SmokerStatus'] = df['SmokerStatus'].map(smoker_map).fillna(0)
+
+
+    # E-CigaretteUsage multi-level
+    ecig_map = {
+        'Never used e-cigarettes in my entire life': 0, 'Not at all (right now)': 0,
+        'Use them some days': 1, 'Use them everyday': 2
+    }
+    if 'ECigaretteUsage' in df.columns:
+        df['ECigaretteUsage'] = df['ECigaretteUsage'].map(ecig_map).fillna(0)
+
+    #TetanusLast10Tdap multi-level
+    tetanus_map = {
+        'No, did not receive any tetanus shot in the past 10 years': 0, 
+        'Yes, received tetanus shot but not sure what type': 1,
+        'Yes, received Tdap': 2,
+        'Yes, received tetanus shot, but not Tdap': 1
+    }
+    if 'TetanusLast10Tdap' in df.columns:
+        df['TetanusLast10Tdap'] = df['TetanusLast10Tdap'].map(tetanus_map).fillna(0)
+
+
     return df
 
 
@@ -96,10 +138,10 @@ def build_preprocessor() -> ColumnTransformer:
         'DifficultyConcentrating','DifficultyDressingBathing','DifficultyErrands',
         'FluVaxLast12','HIVTesting','PneumoVaxEver','ChestScan',
         'PhysicalActivities','DeafOrHardOfHearing','BlindOrVisionDifficulty',
-        'AlcoholDrinkers','HadDiabetes'
+        'AlcoholDrinkers','HadDiabetes','SmokerStatus','ECigaretteUsage','TetanusLast10Tdap'
     ]
     ordinal_feats = ['GeneralHealth','LastCheckupTime','RemovedTeeth']
-    nominal_feats = ['State','RaceEthnicityCategory','SmokerStatus','ECigaretteUsage','TetanusLast10Tdap']
+    nominal_feats = ['State','RaceEthnicityCategory']
 
     num_pipe = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
