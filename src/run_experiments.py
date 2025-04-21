@@ -8,10 +8,7 @@ from gradient_boosting import train_gradient_boosting
 def evaluate_model(clf, X_test, y_test):
     from sklearn.metrics import roc_auc_score, f1_score
     y_pred = clf.predict(X_test)
-    if hasattr(clf, "decision_function"):
-        y_score = clf.decision_function(X_test)
-    else:
-        y_score = clf.predict_proba(X_test)[:,1]
+    y_score = clf.predict_proba(X_test)[:,1] if hasattr(clf, "predict_proba") else clf.decision_function(X_test)
     print(f"    AUROC: {roc_auc_score(y_test, y_score):.3f}   F1: {f1_score(y_test, y_pred):.3f}")
 
 def run_pipeline(name, X_tr, X_te, y_tr, y_te):
