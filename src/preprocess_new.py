@@ -205,12 +205,21 @@ def prepare_data(path: str,
         X, y, test_size=test_size, stratify=y, random_state=random_state
     )
 
-    preprocessor = build_preprocessor()
+    """ preprocessor = build_preprocessor()
     X_tr_p = preprocessor.fit_transform(X_tr)
     X_te_p = preprocessor.transform(X_te)
 
     if selector_type == 'filter':
-        selector = build_filter_selector(k=k_filter)
+        selector = build_filter_selector(k=k_filter) """
+    preprocessor = build_preprocessor()
+    X_train_p = preprocessor.fit_transform(X_tr)
+    X_test_p  = preprocessor.transform(X_te)
+
+    if selector_type == 'filter':
+        n_feats = X_train_p.shape[1]
+        k_use   = min(k_filter, n_feats)
+        print(f">>> using k_filter={k_filter} → k_use={k_use} (n_feats={n_feats})")
+        selector = build_filter_selector(k=k_use)
     elif selector_type == 'wrapper':
         selector = build_wrapper_selector(n_features=k_wrapper)
     else:
