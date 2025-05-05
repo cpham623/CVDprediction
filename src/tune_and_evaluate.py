@@ -85,7 +85,7 @@ def plot_calibration(name, clf, X_te, y_te):
 
 
 if __name__ == '__main__':
-    X_tr, X_te, y_tr, y_te, df_te = prepare_raw('data/heart_2022_no_nans.csv')
+    X_tr, X_te, y_tr, y_te, df_te = prepare_raw('../data/heart_2022_no_nans.csv')
     preprocessor = build_preprocessor()
 
     selectors = {
