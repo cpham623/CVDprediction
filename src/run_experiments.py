@@ -33,7 +33,7 @@ if __name__ == "__main__":
     # run each feature-selection strategy
     for sel in ['filter','wrapper','embedded']:
         X_tr, X_te, y_tr, y_te, preproc, selector = prepare_data(
-            path="data/heart_2022_no_nans.csv",
+            path="../data/heart_2022_no_nans.csv",
             k_filter=50,
             k_wrapper=30,
             selector_type=sel
