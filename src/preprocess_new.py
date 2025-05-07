@@ -1,31 +1,56 @@
 import pandas as pd
-import numpy as np
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.feature_selection import VarianceThreshold, SelectKBest, mutual_info_classif, RFE
-from sklearn.linear_model import LassoCV, LogisticRegression
 from sklearn.model_selection import train_test_split
 
-def load_data(path: str) -> pd.DataFrame:
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
+from category_encoders import TargetEncoder
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class TargetEncoderWrapper(BaseEstimator, TransformerMixin):
+    def __init__(self, smoothing=0.3, min_samples_leaf=100):
+        self.smoothing = smoothing
+        self.min_samples_leaf = min_samples_leaf
+        self.encoder = TargetEncoder(
+            cols=["State"],
+            smoothing=self.smoothing,
+            min_samples_leaf=self.min_samples_leaf
+        )
+
+    def fit(self, X, y=None):
+        self.encoder = TargetEncoder(
+            cols=["State"],
+            smoothing=self.smoothing,
+            min_samples_leaf=self.min_samples_leaf
+        )
+        self.encoder.fit(X, y)
+        return self
+
+    def transform(self, X):
+        return self.encoder.transform(X)
+
+def load_data(path):
     return pd.read_csv(path)
 
-def construct_target(df: pd.DataFrame) -> pd.DataFrame:
+def construct_target(df):
     df['CVD'] = df[['HadHeartAttack', 'HadAngina']].isin(['Yes']).any(axis=1).astype(int)
     return df
 
-def drop_leaky_features(df: pd.DataFrame) -> pd.DataFrame:
+def drop_leaky_features(df):
     to_drop = ['HadHeartAttack', 'HadAngina', 'HadStroke', 'HighRiskLastYear']
     return df.drop(columns=[c for c in to_drop if c in df.columns])
 
-def encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
-    top_n = 10
-    top_states = df['State'].value_counts().nlargest(top_n).index
-    df['State'] = df['State'].where(df['State'].isin(top_states), 'Other')
-
-    top_races = df['RaceEthnicityCategory'].value_counts().nlargest(5).index
-    df['RaceEthnicityCategory'] = df['RaceEthnicityCategory'].where(df['RaceEthnicityCategory'].isin(top_races), 'Other')
+def encode_categoricals(df, y=None, is_training=True):
+    if is_training:
+        te = TargetEncoder(
+            cols=["State"],
+            smoothing=0.3,
+            min_samples_leaf=100
+        )
+        te.fit(df["State"], y)
+        encode_categoricals._state_encoder = te
+    else:
+        te = encode_categoricals._state_encoder
 
     yes_no = [
         'HadAsthma','HadCOPD','HadDepressiveDisorder','HadKidneyDisease','HadArthritis','HadSkinCancer',
@@ -98,77 +123,60 @@ def encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def build_preprocessor() -> ColumnTransformer:
+def build_preprocessor():
     numeric_feats = [
         'PhysicalHealthDays','MentalHealthDays','SleepHours','BMI','HeightInMeters','WeightInKilograms','AgeMidpoint',
         'Sex','CovidPos','HadAsthma','HadCOPD','HadDepressiveDisorder','HadKidneyDisease','HadArthritis','HadSkinCancer',
         'DifficultyWalking','DifficultyConcentrating','DifficultyDressingBathing','DifficultyErrands','FluVaxLast12','HIVTesting',
-        'PneumoVaxEver','ChestScan','PhysicalActivities','DeafOrHardOfHearing','BlindOrVisionDifficulty','AlcoholDrinkers',
-        'HadDiabetes','SmokerStatus','ECigaretteUsage','TetanusLast10Tdap'
+        'PneumoVaxEver','ChestScan','PhysicalActivities','DeafOrHardOfHearing','BlindOrVisionDifficulty','AlcoholDrinkers'
     ]
-    ordinal_feats = ['GeneralHealth','LastCheckupTime','RemovedTeeth']
-    nominal_feats = ['State','RaceEthnicityCategory']
+    ordinal_feats = ['GeneralHealth','LastCheckupTime','RemovedTeeth', 'HadDiabetes', 'SmokerStatus', 'ECigaretteUsage', 'TetanusLast10Tdap']
+    race_feat = ['RaceEthnicityCategory']
+    state_feat = ['State']
 
     num_pipe = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler()),
+        ('scale', StandardScaler())
     ])
+
     ord_pipe = Pipeline([
-        ('imputer', SimpleImputer(strategy='constant', fill_value=-1)),
-        ('scaler', StandardScaler()),
+        ('scale', StandardScaler())
     ])
-    nom_pipe = Pipeline([
-        ('imputer', SimpleImputer(strategy='constant', fill_value='__MISSING__')),
-        ('onehot', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'))
-    ])
+
+    race_pipe = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
+    state_pipe = TargetEncoderWrapper()
 
     return ColumnTransformer([
-        ('num', num_pipe, numeric_feats),
-        ('ord', ord_pipe, ordinal_feats),
-        ('nom', nom_pipe, nominal_feats),
+        ('num',   num_pipe,   numeric_feats),
+        ('ord',   ord_pipe,   ordinal_feats),
+        ('race',  race_pipe,  race_feat),
+        ('state', state_pipe, state_feat),
     ], remainder='drop')
 
-def build_filter_selector(k: int = 50) -> Pipeline:
-    return Pipeline([
-        ('var', VarianceThreshold(threshold=0.01)),
-        ('mi', SelectKBest(score_func=lambda X, y: mutual_info_classif(X, y, discrete_features='auto'), k=k))
-    ])
-
-def build_wrapper_selector(estimator=None, n_features: int = 50) -> RFE:
-    if estimator is None:
-        estimator = LogisticRegression(class_weight='balanced', max_iter=1000)
-    return RFE(estimator=estimator, n_features_to_select=n_features, step=0.1)
-
-def build_embedded_selector() -> SelectKBest:
-    lasso = LassoCV(cv=5, random_state=42)
-    return SelectKBest(score_func=lambda X, y: np.abs(lasso.fit(X, y).coef_), k='all')
-
-def prepare_data(path: str, k_filter: int = 50, k_wrapper: int = 50, test_size: float = 0.2, random_state: int = 42, selector_type: str = 'filter'):
+def prepare_data(
+    path: str,
+    test_size: float = 0.2,
+    random_state: int = 42
+):
     df = load_data(path)
     df = construct_target(df)
     df = drop_leaky_features(df)
-    df = encode_categoricals(df)
 
-    X = df.drop(columns='CVD')
+    X = df.drop(columns=['CVD'])
     y = df['CVD']
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=test_size, stratify=y, random_state=random_state)
+
+    X_tr, X_te, y_tr, y_te = train_test_split(
+        X, y, test_size=test_size,
+        stratify=y, random_state=random_state
+    )
+
+    X_tr = encode_categoricals(X_tr.copy(), y=y_tr, is_training=True)
+    X_te = encode_categoricals(X_te.copy(), is_training=False)
 
     preprocessor = build_preprocessor()
-    X_tr_p = preprocessor.fit_transform(X_tr)
+    X_tr_p = preprocessor.fit_transform(X_tr, y_tr)
     X_te_p = preprocessor.transform(X_te)
 
-    if selector_type == 'filter':
-        n_feats = X_tr_p.shape[1]
-        k_use = min(k_filter, n_feats)
-        selector = build_filter_selector(k=k_use)
-    elif selector_type == 'wrapper':
-        selector = build_wrapper_selector(n_features=k_wrapper)
-    else:
-        selector = build_embedded_selector()
-
-    X_tr_s = selector.fit_transform(X_tr_p, y_tr)
-    X_te_s = selector.transform(X_te_p)
-    return X_tr_s, X_te_s, y_tr, y_te, preprocessor, selector
+    return X_tr_p, X_te_p, y_tr, y_te, preprocessor
 
 if __name__ == '__main__':
     prepare_data('../data/heart_2022_no_nans.csv')
