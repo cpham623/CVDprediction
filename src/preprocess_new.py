@@ -5,12 +5,35 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, OrdinalEncoder
 from category_encoders import TargetEncoder
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class TargetEncoderWrapper(BaseEstimator, TransformerMixin):
+    def __init__(self, smoothing=0.3, min_samples_leaf=100):
+        self.smoothing = smoothing
+        self.min_samples_leaf = min_samples_leaf
+        self.encoder = TargetEncoder(
+            cols=["State"],
+            smoothing=self.smoothing,
+            min_samples_leaf=self.min_samples_leaf
+        )
+
+    def fit(self, X, y=None):
+        self.encoder = TargetEncoder(
+            cols=["State"],
+            smoothing=self.smoothing,
+            min_samples_leaf=self.min_samples_leaf
+        )
+        self.encoder.fit(X, y)
+        return self
+
+    def transform(self, X):
+        return self.encoder.transform(X)
 
 def load_data(path):
     return pd.read_csv(path)
 
 def construct_target(df):
-    df['CVD'] = df[['HadHeartAttack', 'HadAngina', 'HadStroke']].isin(['Yes']).any(axis=1).astype(int)
+    df['CVD'] = df[['HadHeartAttack', 'HadAngina']].isin(['Yes']).any(axis=1).astype(int)
     return df
 
 def drop_leaky_features(df):
@@ -18,28 +41,17 @@ def drop_leaky_features(df):
     return df.drop(columns=[c for c in to_drop if c in df.columns])
 
 def encode_categoricals(df, y=None, is_training=True):
-    # target-encode State (with smoothing & no leakage
-    # fit on the training set and reuse on test
     if is_training:
         te = TargetEncoder(
             cols=["State"],
             smoothing=0.3,
             min_samples_leaf=100
         )
-        df["State_enc"] = te.fit_transform(df["State"], y)["State"]
-        # save the encoder for later
+        te.fit(df["State"], y)
         encode_categoricals._state_encoder = te
     else:
         te = encode_categoricals._state_encoder
-        df["State_enc"] = te.transform(df["State"])["State"]
-    df.drop("State", axis=1, inplace=True)
 
-    # one-hot encoding RaceEthnicity
-    race_dummies = pd.get_dummies(df["RaceEthnicityCategory"], 
-                                  prefix="Race", drop_first=True)
-    df = pd.concat([df.drop("RaceEthnicityCategory", axis=1), race_dummies], axis=1)
-
-    # binaries
     yes_no = [
         'HadAsthma','HadCOPD','HadDepressiveDisorder','HadKidneyDisease','HadArthritis','HadSkinCancer',
         'DifficultyWalking','DifficultyConcentrating','DifficultyDressingBathing','DifficultyErrands',
@@ -49,19 +61,16 @@ def encode_categoricals(df, y=None, is_training=True):
     for col in yes_no:
         if col in df.columns:
             df[col] = df[col].map({'Yes':1,'No':0}).fillna(0)
-    # specific sex binary
+
     if 'Sex' in df.columns:
         df['Sex'] = df['Sex'].map({'Male':1,'Female':0}).fillna(0)
 
-    # covid results binary
     if 'CovidPos' in df.columns:
         df['CovidPos'] = df['CovidPos'].apply(lambda x: 1 if isinstance(x, str) and ('Yes' in x or 'positive' in x) else 0)
 
-    # ordinal encoding
     health_map = {'Poor':1,'Fair':2,'Good':3,'Very good':4,'Excellent':5}
     if 'GeneralHealth' in df.columns:
         df['GeneralHealth'] = df['GeneralHealth'].map(health_map).fillna(0)
-
 
     checkup_map = {
         '5 or more years ago':1,
@@ -72,12 +81,10 @@ def encode_categoricals(df, y=None, is_training=True):
     if 'LastCheckupTime' in df.columns:
         df['LastCheckupTime'] = df['LastCheckupTime'].map(checkup_map).fillna(0)
 
-
     teeth_map = {'None of them':0,'1 to 5':1,'6 or more, but not all':2,'All':3}
     if 'RemovedTeeth' in df.columns:
         df['RemovedTeeth'] = df['RemovedTeeth'].map(teeth_map).fillna(0)
 
-    # numeric midpoint
     age_map = {
        'Age 18 to 24':21,'Age 25 to 29':27,'Age 30 to 34':32,'Age 35 to 39':37,'Age 40 to 44':42,'Age 45 to 49':47,
        'Age 50 to 54':52,'Age 55 to 59':57,'Age 60 to 64':62,'Age 65 to 69':67,'Age 70 to 74':72,'Age 75 to 79':77,'Age 80 or older':85
@@ -86,7 +93,6 @@ def encode_categoricals(df, y=None, is_training=True):
         df['AgeMidpoint'] = df['AgeCategory'].map(age_map).fillna(0)
         df.drop('AgeCategory', axis=1, inplace=True)
 
-    # ordinal encoding
     diabetes_map = {
         'No':0,'No, pre-diabetes or borderline diabetes':1,'Yes':2,'Yes, but only during pregnancy (female)':1
     }
@@ -118,7 +124,6 @@ def encode_categoricals(df, y=None, is_training=True):
     return df
 
 def build_preprocessor():
-    # feature lists
     numeric_feats = [
         'PhysicalHealthDays','MentalHealthDays','SleepHours','BMI','HeightInMeters','WeightInKilograms','AgeMidpoint',
         'Sex','CovidPos','HadAsthma','HadCOPD','HadDepressiveDisorder','HadKidneyDisease','HadArthritis','HadSkinCancer',
@@ -138,12 +143,7 @@ def build_preprocessor():
     ])
 
     race_pipe = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
-    
-    state_pipe = TargetEncoder(
-        cols=['State'],
-        smoothing= 0.3,
-        min_samples_leaf=100
-    )
+    state_pipe = TargetEncoderWrapper()
 
     return ColumnTransformer([
         ('num',   num_pipe,   numeric_feats),
@@ -151,7 +151,6 @@ def build_preprocessor():
         ('race',  race_pipe,  race_feat),
         ('state', state_pipe, state_feat),
     ], remainder='drop')
-
 
 def prepare_data(
     path: str,
@@ -162,7 +161,6 @@ def prepare_data(
     df = construct_target(df)
     df = drop_leaky_features(df)
 
-    # split before encoding to avoid leakage
     X = df.drop(columns=['CVD'])
     y = df['CVD']
 
@@ -171,13 +169,11 @@ def prepare_data(
         stratify=y, random_state=random_state
     )
 
-    # encode categoricals separately for train vs test
     X_tr = encode_categoricals(X_tr.copy(), y=y_tr, is_training=True)
     X_te = encode_categoricals(X_te.copy(), is_training=False)
 
-    # build and apply preprocessor
     preprocessor = build_preprocessor()
-    X_tr_p = preprocessor.fit_transform(X_tr)
+    X_tr_p = preprocessor.fit_transform(X_tr, y_tr)
     X_te_p = preprocessor.transform(X_te)
 
     return X_tr_p, X_te_p, y_tr, y_te, preprocessor

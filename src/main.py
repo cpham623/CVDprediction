@@ -12,6 +12,7 @@ from evaluate_model import evaluate_model
 from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay
+import tune_and_evaluate
 
 # Path and config
 DATA_PATH = "../data/heart_2022_no_nans.csv"
@@ -44,57 +45,31 @@ def plot_evaluation(model, X_test, y_test, title):
     plt.show()
 
 # Preprocess and split data for evaluation
-X_train, X_test, y_train, y_test, _, _ = prepare_data(
-    path=DATA_PATH,
-    selector_type=SELECTOR_TYPE
-)
+X_train, X_test, y_train, y_test, _ = prepare_data(path=DATA_PATH)
+
 
 # === RUN ALL FOUR MODELS ===
 print("\n================ Logistic Regression ================")
 logistic_model = train_logistic(X_train, X_test, y_train, y_test)
 evaluate_model(logistic_model, X_test, y_test)
-plot_evaluation(logistic_model, X_test, y_test, "Logistic Regression")
+# plot_evaluation(logistic_model, X_test, y_test, "Logistic Regression")
 
 print("\n================ SVM ================")
 svm_model = train_svm(X_train, X_test, y_train, y_test)
 evaluate_model(svm_model, X_test, y_test)
-plot_evaluation(svm_model, X_test, y_test, "SVM")
+# plot_evaluation(svm_model, X_test, y_test, "SVM")
 
 print("\n================ Random Forest ================")
 rf_model = train_random_forest(X_train, X_test, y_train, y_test)
 evaluate_model(rf_model, X_test, y_test)
-plot_evaluation(rf_model, X_test, y_test, "Random Forest")
+# plot_evaluation(rf_model, X_test, y_test, "Random Forest")
 
 print("\n================ Gradient Boosting ================")
 gb_model = train_gradient_boosting(X_train, X_test, y_train, y_test)
 evaluate_model(gb_model, X_test, y_test)
-plot_evaluation(gb_model, X_test, y_test, "Gradient Boosting")
+# plot_evaluation(gb_model, X_test, y_test, "Gradient Boosting")
 
-# === HYPERPARAMETER TUNING WITH RANDOMIZED K-FOLD (EXAMPLE: Logistic Regression) ===
-print("\n================ K-Fold Randomized Search (Logistic Regression) ================")
-X_kfold, y_kfold, _ = prepare_kfold_data(DATA_PATH)
-
-param_distributions = {
-    'sel__mi__k': [10, 20, 30, 40],
-    'clf__C': np.logspace(-3, 1, 10)
-}
-
-model = LogisticRegression(class_weight='balanced', max_iter=1000, random_state=42)
-pipe = create_model_pipeline(selector_type=SELECTOR_TYPE, model=model)
-cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-
-search = RandomizedSearchCV(
-    pipe,
-    param_distributions=param_distributions,
-    n_iter=10,
-    cv=cv,
-    scoring='roc_auc',
-    n_jobs=-1,
-    verbose=2,
-    random_state=42
-)
-search.fit(X_kfold, y_kfold)
-
-print("Best Parameters:", search.best_params_)
-evaluate_model(search.best_estimator_, X_test, y_test)
-plot_evaluation(search.best_estimator_, X_test, y_test, "Best Logistic Model (Tuned)")
+# === RUN TUNED MODEL PIPELINES WITH FEATURE IMPORTANCE ===
+import tune_and_evaluate
+print("\n================ Running tune_and_evaluate pipelines ================")
+tune_and_evaluate.run_all()
